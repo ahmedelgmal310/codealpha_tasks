@@ -1,0 +1,87 @@
+# Jenkins controller + two inbound agents on different CPU architectures.
+#
+#   agents-amd64 network:  jenkins <──── agent-amd64 (linux/amd64)
+#   agents-arm64 network:  jenkins <──── agent-arm64 (linux/arm64, emulated with QEMU on x86 hosts)
+#
+# Each agent sits on its own network: it can reach the controller but not the other agent.
+
+x-agent: &agent
+  build:
+    context: .
+    dockerfile: agent/Dockerfile
+  restart: unless-stopped
+  depends_on:
+    jenkins:
+      condition: service_healthy
+  environment: &agent-env
+    JENKINS_URL: http://jenkins:8080
+    JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+    AGENT_CONNECT_USER: ${AGENT_CONNECT_USER:-agent-connector}
+    AGENT_CONNECT_PASSWORD: ${AGENT_CONNECT_PASSWORD:?Set AGENT_CONNECT_PASSWORD in .env}
+  # Node isolation, part 2: unprivileged containers with their own limits
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  deploy:
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 1536M
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: controller/Dockerfile
+    image: codealpha-jenkins-controller:latest
+    container_name: jenkins
+    restart: unless-stopped
+    environment:
+      JENKINS_ADMIN_ID: ${JENKINS_ADMIN_ID:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?Set JENKINS_ADMIN_PASSWORD in .env}
+      AGENT_CONNECT_USER: ${AGENT_CONNECT_USER:-agent-connector}
+      AGENT_CONNECT_PASSWORD: ${AGENT_CONNECT_PASSWORD:?Set AGENT_CONNECT_PASSWORD in .env}
+      JENKINS_PUBLIC_URL: ${JENKINS_PUBLIC_URL:-http://localhost:8080/}
+      PIPELINES_REPO_URL: ${PIPELINES_REPO_URL:-https://github.com/ahmedelgmal310/codealpha_tasks.git}
+    ports:
+      - "${JENKINS_PORT:-8080}:8080"
+      # Port 50000 is only needed on the host when agents on *other machines* connect.
+      # The container agents reach it over the internal networks.
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    networks:
+      - agents-amd64
+      - agents-arm64
+
+  agent-amd64:
+    <<: *agent
+    image: codealpha-jenkins-agent:amd64
+    container_name: agent-amd64
+    hostname: agent-amd64
+    platform: linux/amd64
+    environment:
+      <<: *agent-env
+      JENKINS_AGENT_NAME: agent-amd64
+    networks:
+      - agents-amd64
+
+  agent-arm64:
+    <<: *agent
+    image: codealpha-jenkins-agent:arm64
+    container_name: agent-arm64
+    hostname: agent-arm64
+    platform: linux/arm64
+    environment:
+      <<: *agent-env
+      JENKINS_AGENT_NAME: agent-arm64
+    networks:
+      - agents-arm64
+
+networks:
+  agents-amd64:
+  agents-arm64:
+
+volumes:
+  jenkins_home:

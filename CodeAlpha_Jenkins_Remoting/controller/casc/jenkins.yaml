@@ -1,0 +1,82 @@
+# Jenkins Configuration as Code: everything the controller needs, applied on every start.
+# Values like ${JENKINS_ADMIN_PASSWORD} come from environment variables (see .env.example).
+
+jenkins:
+  systemMessage: "CodeAlpha Jenkins Remoting lab. Configuration is managed in casc/jenkins.yaml."
+
+  # Node isolation, part 1: the controller has no executors, so builds can only run on agents
+  numExecutors: 0
+  mode: EXCLUSIVE
+
+  # Fixed TCP port for inbound agents (JNLP4-connect protocol, TLS encrypted)
+  slaveAgentPort: 50000
+
+  disableRememberMe: true
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+        # Used only by the agent containers to fetch their connection secret
+        - id: "${AGENT_CONNECT_USER}"
+          password: "${AGENT_CONNECT_PASSWORD}"
+
+  authorizationStrategy:
+    globalMatrix:
+      entries:
+        - user:
+            name: "${JENKINS_ADMIN_ID}"
+            permissions:
+              - "Overall/Administer"
+        # Least privilege: this account can connect agents and nothing else
+        - user:
+            name: "${AGENT_CONNECT_USER}"
+            permissions:
+              - "Overall/Read"
+              - "Agent/Connect"
+
+  # Permanent agents that connect *to* the controller (inbound). Each one gets its own secret.
+  # mode EXCLUSIVE = the node only runs jobs whose label expression asks for it.
+  nodes:
+    - permanent:
+        name: "agent-amd64"
+        nodeDescription: "Linux x86_64 agent, isolated network agents-amd64"
+        labelString: "linux amd64 x86_64"
+        mode: EXCLUSIVE
+        numExecutors: 2
+        remoteFS: "/home/jenkins/agent"
+        launcher:
+          inbound:
+            workDirSettings:
+              disabled: false
+              failIfWorkDirIsMissing: false
+              internalDir: "remoting"
+        retentionStrategy: "always"
+    - permanent:
+        name: "agent-arm64"
+        nodeDescription: "Linux aarch64 agent (emulated on x86 hosts), isolated network agents-arm64"
+        labelString: "linux arm64 aarch64"
+        mode: EXCLUSIVE
+        numExecutors: 2
+        remoteFS: "/home/jenkins/agent"
+        launcher:
+          inbound:
+            workDirSettings:
+              disabled: false
+              failIfWorkDirIsMissing: false
+              internalDir: "remoting"
+        retentionStrategy: "always"
+
+security:
+  # The seed script is part of this repository and trusted, so it may read the pipeline files from disk
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: false
+
+unclassified:
+  location:
+    url: "${JENKINS_PUBLIC_URL:-http://localhost:8080/}"
+
+jobs:
+  - file: /opt/jenkins/casc/jobs.groovy
