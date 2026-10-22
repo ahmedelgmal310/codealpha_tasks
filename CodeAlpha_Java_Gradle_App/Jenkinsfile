@@ -1,0 +1,61 @@
+// Jenkins version of the CI pipeline for this app.
+// Runs on the remote agents from Task 2 (CodeAlpha_Jenkins_Remoting): the job "task3-gradle-build"
+// there checks out this repository and uses this file.
+
+pipeline {
+    agent { label 'linux && amd64' }
+
+    options {
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        APP_DIR = 'CodeAlpha_Java_Gradle_App'
+    }
+
+    stages {
+        stage('Build') {
+            steps {
+                dir(env.APP_DIR) {
+                    sh 'chmod +x gradlew'
+                    sh './gradlew --no-daemon --console=plain clean assemble'
+                }
+            }
+        }
+
+        stage('Test and coverage') {
+            steps {
+                dir(env.APP_DIR) {
+                    sh './gradlew --no-daemon --console=plain check'
+                }
+            }
+            post {
+                always {
+                    junit testResults: "${env.APP_DIR}/build/test-results/test/*.xml", allowEmptyResults: true
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                dir(env.APP_DIR) {
+                    sh './gradlew --no-daemon --console=plain distZip'
+                }
+                archiveArtifacts artifacts: "${env.APP_DIR}/build/distributions/*.zip, ${env.APP_DIR}/build/libs/*.jar",
+                                 fingerprint: true
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Built on ${env.NODE_NAME}: ${env.APP_DIR}/build/distributions"
+        }
+        cleanup {
+            cleanWs()
+        }
+    }
+}
