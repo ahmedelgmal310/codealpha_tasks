@@ -1,0 +1,65 @@
+name: Task 4 - Docker Web Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CodeAlpha_Docker_Web_Server/**"
+      - ".github/workflows/task4-docker-web-server.yml"
+  pull_request:
+    paths:
+      - "CodeAlpha_Docker_Web_Server/**"
+      - ".github/workflows/task4-docker-web-server.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: CodeAlpha_Docker_Web_Server
+
+jobs:
+  build-and-test:
+    name: Build, run and test the container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile (hadolint)
+        run: docker run --rm -i hadolint/hadolint < Dockerfile
+
+      - name: Build image
+        run: docker build -t codealpha-web-server:ci .
+
+      - name: Validate nginx config
+        run: docker run --rm codealpha-web-server:ci nginx -t
+
+      - name: Start container (same hardening as docker-compose.yml)
+        run: |
+          docker run -d --name web -p 8080:8080 \
+            --read-only --tmpfs /tmp \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            --memory 128m --cpus 0.5 \
+            codealpha-web-server:ci
+
+      - name: Wait for the health check
+        run: |
+          for i in $(seq 1 20); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' web)
+            echo "health: $status"
+            if [ "$status" = "healthy" ]; then exit 0; fi
+            sleep 3
+          done
+          docker logs web
+          exit 1
+
+      - name: Smoke tests
+        run: ./scripts/smoke-test.sh http://localhost:8080
+
+      - name: Container details
+        if: always()
+        run: |
+          docker inspect --format 'user={{.Config.User}} read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{.HostConfig.CapDrop}}' web
+          docker stats --no-stream web
+          docker logs web

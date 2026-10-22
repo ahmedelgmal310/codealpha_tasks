@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeAlpha Web Server</title>
+  <meta name="description" content="Static website served by Nginx inside a Docker container">
+  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232563eb'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <p class="eyebrow">CodeAlpha DevOps Internship &middot; Task 4</p>
+      <h1>Web Server using Docker</h1>
+      <p class="lead">This page is served by Nginx running inside a Docker container as a non-root user.</p>
+      <p class="status" id="status" data-state="checking">
+        <span class="dot"></span><span id="status-text">Checking server health&hellip;</span>
+      </p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="grid">
+      <article class="card">
+        <h2>Image</h2>
+        <p>Built from <code>nginxinc/nginx-unprivileged:1.28-alpine</code> with a custom server block and the site files copied in at build time.</p>
+      </article>
+      <article class="card">
+        <h2>Health check</h2>
+        <p>Docker calls <code>/health</code> every 15 seconds. Three failed checks in a row mark the container as <em>unhealthy</em>.</p>
+      </article>
+      <article class="card">
+        <h2>Hardening</h2>
+        <p>Runs as UID 101 with a read-only root filesystem, all Linux capabilities dropped and <code>no-new-privileges</code> set.</p>
+      </article>
+      <article class="card">
+        <h2>Lifecycle</h2>
+        <p>Build, run, stop, start, restart, inspect and remove the container with <code>scripts/manage.sh</code> or Docker Compose.</p>
+      </article>
+    </section>
+
+    <section class="details">
+      <h2>Response details</h2>
+      <dl id="details">
+        <dt>Health endpoint</dt><dd id="health-body">&ndash;</dd>
+        <dt>Response time</dt><dd id="health-time">&ndash;</dd>
+        <dt>Checked at</dt><dd id="health-checked">&ndash;</dd>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="wrap footer">
+    <p>Ahmed Elgammal &middot; CodeAlpha DevOps Internship 2026</p>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
