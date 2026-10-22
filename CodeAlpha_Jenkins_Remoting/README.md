@@ -103,6 +103,10 @@ node-isolation-check  SUCCESS
   OK: agent-arm64 is not reachable from agent-amd64
   OK: agent-amd64 is not reachable from agent-arm64
   OK: controller is reachable
+
+task3-gradle-build    SUCCESS
+  checked out github.com/ahmedelgmal310/codealpha_tasks on agent-amd64
+  Build → Test and coverage → Package, 24/24 tests passed, artifacts archived
 ```
 
 ## Security and node isolation
