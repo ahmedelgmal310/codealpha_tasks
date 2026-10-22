@@ -1,0 +1,174 @@
+# CI/CD for the Release Board app
+#
+#   Build   -> install, unit tests, publish test results
+#   Package -> docker build with build metadata, push to Azure Container Registry
+#   Deploy  -> point Azure App Service at the new image tag
+#   Verify  -> smoke test the live site, check the deployed build number
+#
+# Package/Deploy/Verify only run for the main branch. Pull requests run Build only.
+# See docs/SETUP.md for the service connections and resources this pipeline expects.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - CodeAlpha_Azure_CICD_Pipeline/*
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - CodeAlpha_Azure_CICD_Pipeline/*
+
+variables:
+  projectDir: CodeAlpha_Azure_CICD_Pipeline
+  vmImage: ubuntu-latest
+
+  # Names of the service connections created in Project settings > Service connections
+  dockerRegistryServiceConnection: acr-connection
+  azureSubscription: azure-rm-connection
+
+  # Must match the resources created by infra/main.bicep (see its outputs)
+  acrLoginServer: codealphaahmedacr.azurecr.io
+  imageRepository: release-board
+  webAppName: codealpha-ahmed-release-board
+  webAppUrl: https://codealpha-ahmed-release-board.azurewebsites.net
+
+  tag: $(Build.BuildId)
+  isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+
+stages:
+  - stage: Build
+    displayName: Build and test
+    jobs:
+      - job: Test
+        displayName: Unit tests
+        pool:
+          vmImage: $(vmImage)
+        steps:
+          - task: NodeTool@0
+            displayName: Use Node.js 24
+            inputs:
+              versionSpec: 24.x
+
+          - task: Cache@2
+            displayName: Cache npm packages
+            inputs:
+              key: 'npm | "$(Agent.OS)" | $(projectDir)/package-lock.json'
+              restoreKeys: |
+                npm | "$(Agent.OS)"
+              path: $(Pipeline.Workspace)/.npm
+
+          - script: npm ci --cache $(Pipeline.Workspace)/.npm
+            displayName: npm ci
+            workingDirectory: $(projectDir)
+
+          - script: npm run test:ci
+            displayName: Run tests
+            workingDirectory: $(projectDir)
+
+          - task: PublishTestResults@2
+            displayName: Publish test results
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: $(projectDir)/reports/junit.xml
+              testRunTitle: Release Board unit tests
+              failTaskOnFailedTests: true
+
+  - stage: Package
+    displayName: Build and push image
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables.isMain, true))
+    jobs:
+      - job: Docker
+        displayName: Docker image
+        pool:
+          vmImage: $(vmImage)
+        steps:
+          # buildAndPush ignores build args, so build and push are separate steps
+          - task: Docker@2
+            displayName: Build image
+            inputs:
+              command: build
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: $(imageRepository)
+              Dockerfile: $(projectDir)/Dockerfile
+              buildContext: $(projectDir)
+              arguments: >-
+                --build-arg BUILD_ID=$(Build.BuildNumber)
+                --build-arg GIT_COMMIT=$(Build.SourceVersion)
+                --label org.opencontainers.image.revision=$(Build.SourceVersion)
+              tags: |
+                $(tag)
+                latest
+
+          - task: Docker@2
+            displayName: Push image to ACR
+            inputs:
+              command: push
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: $(imageRepository)
+              tags: |
+                $(tag)
+                latest
+
+  - stage: Deploy
+    displayName: Deploy to App Service
+    dependsOn: Package
+    condition: succeeded()
+    jobs:
+      # A deployment job records every release in the "production" environment
+      # (Pipelines > Environments), where you can also add approvals and checks.
+      - deployment: WebApp
+        displayName: Deploy container
+        environment: production
+        pool:
+          vmImage: $(vmImage)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy $(imageRepository):$(tag)
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    appName: $(webAppName)
+                    containers: $(acrLoginServer)/$(imageRepository):$(tag)
+
+  - stage: Verify
+    displayName: Smoke test
+    dependsOn: Deploy
+    condition: succeeded()
+    jobs:
+      - job: Smoke
+        displayName: Check the live site
+        pool:
+          vmImage: $(vmImage)
+        steps:
+          - checkout: none
+
+          - script: |
+              set -euo pipefail
+              url="$(webAppUrl)"
+              expected="$(Build.BuildNumber)"
+
+              # The new container needs a moment to be pulled and started
+              for attempt in $(seq 1 30); do
+                build=$(curl -fsS "$url/api/info" | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"])' 2>/dev/null || true)
+                if [ "$build" = "$expected" ]; then
+                  echo "Build $build is live at $url"
+                  curl -fsS "$url/health"
+                  exit 0
+                fi
+                echo "Attempt $attempt: live build is '${build:-unreachable}', waiting for $expected..."
+                sleep 10
+              done
+
+              echo "##vso[task.logissue type=error]Build $expected did not go live within 5 minutes"
+              exit 1
+            displayName: Wait for the new build and check /health

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Release Board</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="wrap">
+    <p class="eyebrow">CodeAlpha DevOps &middot; Task 1</p>
+    <h1>Release Board</h1>
+    <p class="lead">Shows which build of this app is running. Every push to <code>main</code> goes through Azure Pipelines: test &rarr; build image &rarr; push to Azure Container Registry &rarr; deploy to Azure App Service.</p>
+
+    <section class="card" aria-live="polite">
+      <div class="row">
+        <h2>Deployed build</h2>
+        <span class="badge" id="health" data-state="checking">checking</span>
+      </div>
+      <dl>
+        <dt>Version</dt><dd id="version">&ndash;</dd>
+        <dt>Build</dt><dd id="build">&ndash;</dd>
+        <dt>Commit</dt><dd id="commit">&ndash;</dd>
+        <dt>Environment</dt><dd id="environment">&ndash;</dd>
+        <dt>Instance</dt><dd id="hostname">&ndash;</dd>
+        <dt>Started</dt><dd id="startedAt">&ndash;</dd>
+        <dt>Node.js</dt><dd id="node">&ndash;</dd>
+      </dl>
+    </section>
+
+    <ol class="pipeline">
+      <li><strong>Build</strong><span>npm ci, unit tests, test report</span></li>
+      <li><strong>Package</strong><span>Docker image pushed to ACR</span></li>
+      <li><strong>Deploy</strong><span>App Service pulls the new tag</span></li>
+      <li><strong>Verify</strong><span>Smoke test on /health and /api/info</span></li>
+    </ol>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

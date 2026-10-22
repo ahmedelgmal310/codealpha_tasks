@@ -1,0 +1,10 @@
+node_modules
+reports
+test
+infra
+docs
+scripts
+*.md
+azure-pipelines.yml
+Dockerfile
+.dockerignore

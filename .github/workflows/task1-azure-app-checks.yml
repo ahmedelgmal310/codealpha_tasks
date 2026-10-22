@@ -1,0 +1,72 @@
+# Fast feedback on GitHub for Task 1. The real CI/CD pipeline (build, push to ACR,
+# deploy to App Service) is azure-pipelines.yml and runs in Azure DevOps.
+name: Task 1 - App and infra checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CodeAlpha_Azure_CICD_Pipeline/**"
+      - ".github/workflows/task1-azure-app-checks.yml"
+  pull_request:
+    paths:
+      - "CodeAlpha_Azure_CICD_Pipeline/**"
+      - ".github/workflows/task1-azure-app-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: CodeAlpha_Azure_CICD_Pipeline
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: CodeAlpha_Azure_CICD_Pipeline/package-lock.json
+
+      - run: npm ci
+      - run: npm run test:ci
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile
+        run: docker run --rm -i hadolint/hadolint < Dockerfile
+
+      - name: Build image
+        run: docker build --build-arg BUILD_ID=gh-${{ github.run_number }} --build-arg GIT_COMMIT=${{ github.sha }} -t release-board:ci .
+
+      - name: Run and check /health and /api/info
+        run: |
+          docker run -d --name app -p 3000:3000 release-board:ci
+          for i in $(seq 1 20); do
+            curl -fs http://localhost:3000/health && break
+            sleep 2
+          done
+          curl -fs http://localhost:3000/api/info | tee info.json
+          grep -q '"build":"gh-${{ github.run_number }}"' info.json
+
+  bicep:
+    name: Validate Bicep template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and lint main.bicep
+        run: |
+          az bicep install
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          echo "main.bicep compiles"
