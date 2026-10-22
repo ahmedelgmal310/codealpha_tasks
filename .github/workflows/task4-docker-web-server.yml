@@ -24,7 +24,7 @@ jobs:
     name: Build, run and test the container
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Lint Dockerfile (hadolint)
         run: docker run --rm -i hadolint/hadolint < Dockerfile
